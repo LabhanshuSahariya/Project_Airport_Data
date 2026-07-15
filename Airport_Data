@@ -1,0 +1,157 @@
+--1. Analyze total passenger traffic per route.
+
+-- Top 5 busiest routes with huge passenger traffic
+/*Miami, FL	New York, NY
+New York, NY	Miami, FL
+Orlando, FL	New York, NY
+New York, NY	Orlando, FL
+New York, NY	Chicago, IL*/
+
+select ORIGIN_CITY_NAME, DEST_CITY_NAME,
+sum(PASSENGERS) as Total_passengers
+from Airport_Data
+group by ORIGIN_CITY_NAME, DEST_CITY_NAME
+order by Total_passengers desc
+limit 5;
+
+
+-- Top 5 least busiest routes
+/*Smyrna, TN	Nashville, TN
+St. Mary's, AK	Marshall, AK
+Scammon Bay, AK	Sheldon Point, AK
+Takotna, AK	Nikolai, AK
+Teterboro, NJ	New Haven, CT*/
+
+select ORIGIN_CITY_NAME, DEST_CITY_NAME,
+sum(PASSENGERS) as Total_passengers
+from Airport_Data
+where ORIGIN_CITY_NAME <> DEST_CITY_NAME
+group by 1, 2
+having Total_passengers > 0
+order by Total_passengers
+limit 5;
+
+
+
+
+
+-- 2. Determine average passengers per flight for various routes and airports.
+
+-- for routes
+
+select ORIGIN_CITY_NAME, DEST_CITY_NAME, 
+avg(PASSENGERS) as Avg_Passenger
+from Airport_Data
+group by 1, 2
+order by Avg_Passenger desc;
+
+-- for airports
+
+with outgoing_passenger as
+(select ORIGIN_AIRPORT_ID, round(avg(PASSENGERS)) as Avg_Passenger
+from Airport_Data
+group by 1
+order by Avg_Passenger desc),
+
+incoming_passenger as
+(select DEST_AIRPORT_ID, round(avg(PASSENGERS)) as Avg_Passenger
+from Airport_Data
+group by 1
+order by Avg_Passenger desc),
+
+all_airports as
+(select distinct ORIGIN_AIRPORT_ID as Airport_id from Airport_Data
+union
+select distinct DEST_AIRPORT_ID as Airport_id from Airport_Data)
+
+select aa.Airport_id, op.Avg_Passenger + ip.Avg_Passenger as Avg_Passenger_Traffic 
+from all_airports aa
+left join outgoing_passenger op on aa.Airport_id = op.ORIGIN_AIRPORT_ID
+left join incoming_passenger ip on aa.Airport_id = ip.DEST_AIRPORT_ID
+where Avg_Passenger_Traffic is not null
+order by Avg_Passenger_Traffic desc;
+
+
+
+
+
+-- 3. Assess flight frequency and identify high-traffic corridors.
+
+select ORIGIN_CITY_NAME, DEST_CITY_NAME, count(AIRLINE_ID) as No_of_Flights 
+from Airport_Data
+group by 1, 2
+order by No_of_Flights desc
+limit 10;
+
+
+
+
+
+-- 4. Evaluate available seat capacity to understand seat utilization.
+
+with Seat_Capacity as
+(select AIRLINE_ID, max(PASSENGERS) as seat_cap
+from Airport_Data
+group by 1
+having max(PASSENGERS) > 0),
+
+seat_utilization as
+(select ad.AIRLINE_ID, ad.PASSENGERS*100/sc.seat_cap as seat_utilization
+from Airport_Data ad
+join Seat_Capacity sc on ad.AIRLINE_ID = sc.AIRLINE_ID)
+
+select AIRLINE_ID, round(avg(seat_utilization),2) as Avg_seat_utilization
+from seat_utilization
+group by 1
+order by Avg_seat_utilization desc
+
+
+
+
+
+-- 5. Identify popular destination airports based on inbound passenger counts.
+
+select DEST_CITY_NAME, sum(PASSENGERS) Inbound_Passengers
+from Airport_Data
+group by DEST_CITY_NAME
+order by Inbound_Passengers desc
+limit 10
+
+
+
+
+
+-- 6. Examine the relationship between city population and airport passenger traffic.
+
+with outgoing_passengers as
+(select ORIGIN_AIRPORT_ID, sum(PASSENGERS) as total_passengers
+from Airport_Data
+group by 1),
+
+incoming_passengers as
+(select DEST_AIRPORT_ID, sum(PASSENGERS) as total_passengers
+from Airport_Data
+group by 1),
+
+all_airports as
+(select distinct ORIGIN_AIRPORT_ID as Airport_id, ORIGIN_CITY_NAME as city_name
+from Airport_Data
+union
+select distinct DEST_AIRPORT_ID as Airport_id, DEST_CITY_NAME as city_name
+from Airport_Data),
+
+passenger_traffic as
+(select substring(aa.city_name,1,instr(aa.city_name,',')-1) as city_name, 
+op.total_passengers + ip.total_passengers as Total_passengers_travelling
+from all_airports aa
+left join outgoing_passengers op on aa.Airport_id = op.ORIGIN_AIRPORT_ID
+left join incoming_passengers ip on aa.Airport_id = ip.DEST_AIRPORT_ID
+where op.total_passengers + ip.total_passengers is not null
+order by Total_passengers_travelling desc)
+
+select pt.city_name, cp.population, pt.Total_passengers_travelling
+from passenger_traffic pt
+join City_Pop cp on pt.city_name = cp.city_name
+where population is not null and Total_passengers_travelling is not null
+and population<>0
+order by population
